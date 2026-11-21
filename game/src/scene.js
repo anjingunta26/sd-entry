@@ -1,64 +1,66 @@
-// Scene generation: one base landscape, then DIFF_COUNT differences applied
-// to one side or the other. A difference is:
-//   { type, x, y, r, color, altColor }
-//   type 'extra'    — shape exists only on the right
-//   type 'missing'  — shape exists only on the left
-//   type 'recolor'  — same shape on both sides, different color on the right
-import { createRandom } from './random.js';
+// Scene generation and rendering for "Find the Five".
+// One base landscape is generated from a seed; then DIFF_COUNT differences
+// are placed on it. Each difference is one of:
+//   { type: 'extra',   ... } — shape drawn only on the right canvas
+//   { type: 'missing', ... } — shape drawn only on the left canvas
+//   { type: 'recolor', ... } — same shape on both, altColor on the right
+// drawScene(ctx, scene, diffs, side, found) renders one panel; differences
+// whose index is in `found` are skipped on BOTH sides (already solved).
+import { makeHelpers } from './random.js';
 
 export const W = 480;
 export const H = 360;
 export const DIFF_COUNT = 5;
 
-const PALETTE = {
-  sky: ['#87ceeb', '#f7d794', '#b8e0d2', '#f6b8b8', '#c3b8e8'],
-  hill: ['#5aa469', '#8a9a5b', '#4d8f6f', '#7a9e4f', '#6b9e78'],
-  sun: ['#ffd93d', '#ffb347', '#ffe066', '#ff9f43', '#ffd32a'],
-};
+const SKY_COLORS = ['#87ceeb', '#f7d794', '#b8e0d2', '#f6b8b8', '#c3b8e8'];
+const HILL_COLORS = ['#5aa469', '#8a9a5b', '#4d8f6f', '#7a9e4f', '#6b9e78'];
+const SUN_COLORS = ['#ffd93d', '#ffb347', '#ffe066', '#ff9f43', '#ffd32a'];
 const SHAPE_COLORS = ['#ff6b6b', '#48dbfb', '#1dd1a1', '#feca57', '#ff9ff3', '#ffffff'];
 const ALT_COLORS = ['#48dbfb', '#ff6b6b', '#feca57', '#1dd1a1', '#ff9ff3', '#f368e0'];
+const FLOWER_COLORS = ['#ff6b6b', '#feca57', '#f368e0', '#ffffff'];
 
 export function makeScene(seed) {
-  const rnd = createRandom(seed);
-  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+  const r = makeHelpers(seed);
   const scene = {
-    sky: pick(PALETTE.sky),
-    hill: pick(PALETTE.hill),
-    sun: pick(PALETTE.sun),
-    sunX: 60 + rnd() * (W - 120),
-    sunY: 40 + rnd() * 60,
+    sky: r.pick(SKY_COLORS),
+    hill: r.pick(HILL_COLORS),
+    sun: r.pick(SUN_COLORS),
+    sunX: r.range(60, W - 60),
+    sunY: r.range(40, 100),
     clouds: [],
     trees: [],
-    house: { x: 150 + rnd() * 180, y: 190 + rnd() * 40, w: 90, h: 70 },
+    house: { x: r.range(150, 330), y: r.range(190, 230), w: 90, h: 70 },
     flowers: [],
   };
-  const nClouds = 2 + Math.floor(rnd() * 2);
+
+  const nClouds = r.int(2, 3);
   for (let i = 0; i < nClouds; i++) {
-    scene.clouds.push({ x: 30 + rnd() * (W - 100), y: 30 + rnd() * 70, s: 0.7 + rnd() * 0.6 });
+    scene.clouds.push({ x: r.range(40, W - 90), y: r.range(30, 100), s: r.range(0.7, 1.3) });
   }
-  const nTrees = 3 + Math.floor(rnd() * 3);
+  const nTrees = r.int(3, 5);
   for (let i = 0; i < nTrees; i++) {
-    scene.trees.push({ x: 20 + rnd() * (W - 40), y: 230 + rnd() * 60, s: 0.8 + rnd() * 0.5 });
+    scene.trees.push({ x: r.range(20, W - 20), y: r.range(235, 290), s: r.range(0.8, 1.3) });
   }
-  const nFlowers = 6 + Math.floor(rnd() * 5);
+  const nFlowers = r.int(6, 10);
   for (let i = 0; i < nFlowers; i++) {
-    scene.flowers.push({ x: 15 + rnd() * (W - 30), y: 300 + rnd() * 45, c: pick(['#ff6b6b', '#feca57', '#f368e0', '#ffffff']) });
+    scene.flowers.push({ x: r.range(15, W - 15), y: r.range(305, H - 15), c: r.pick(FLOWER_COLORS) });
   }
-  // Choose DIFF_COUNT well-separated difference spots.
+
+  // Place exactly DIFF_COUNT differences, kept well apart so they are fair.
   const diffs = [];
   let guard = 0;
-  while (diffs.length < DIFF_COUNT && guard++ < 500) {
+  while (diffs.length < DIFF_COUNT && guard++ < 1000) {
     const d = {
-      type: ['extra', 'missing', 'recolor'][Math.floor(rnd() * 3)],
-      x: 30 + rnd() * (W - 60),
-      y: 90 + rnd() * (H - 130),
-      r: 10 + rnd() * 8,
-      color: pick(SHAPE_COLORS),
-      altColor: pick(ALT_COLORS),
+      type: r.pick(['extra', 'missing', 'recolor']),
+      x: r.range(30, W - 30),
+      y: r.range(95, H - 30),
+      r: r.range(10, 18),
+      color: r.pick(SHAPE_COLORS),
+      altColor: r.pick(ALT_COLORS),
     };
     if (diffs.every((o) => Math.hypot(o.x - d.x, o.y - d.y) > 70)) diffs.push(d);
   }
-  return { scene, diffs, seed };
+  return { seed, scene, diffs };
 }
 
 function drawDiffShape(ctx, d, color) {
@@ -71,8 +73,6 @@ function drawDiffShape(ctx, d, color) {
   ctx.stroke();
 }
 
-// Draw the base scene plus the differences that belong to `side`.
-// Differences already in `found` are omitted (both sides look identical there).
 export function drawScene(ctx, scene, diffs, side, found) {
   // sky
   ctx.fillStyle = scene.sky;
@@ -129,7 +129,7 @@ export function drawScene(ctx, scene, diffs, side, found) {
     ctx.arc(f.x, f.y, 4, 0, Math.PI * 2);
     ctx.fill();
   }
-  // differences for this side (skip ones already found)
+  // this side's differences (skip already-found ones)
   for (let i = 0; i < diffs.length; i++) {
     if (found.has(i)) continue;
     const d = diffs[i];
