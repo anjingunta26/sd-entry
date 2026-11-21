@@ -1,5 +1,9 @@
-// Scene generation: one base scene, then N differences applied to the right copy.
-// A difference is {kind, x, y, r} — a shape that exists only on one side.
+// Scene generation: one base landscape, then DIFF_COUNT differences applied
+// to one side or the other. A difference is:
+//   { type, x, y, r, color, altColor }
+//   type 'extra'    — shape exists only on the right
+//   type 'missing'  — shape exists only on the left
+//   type 'recolor'  — same shape on both sides, different color on the right
 import { createRandom } from './random.js';
 
 export const W = 480;
@@ -11,6 +15,8 @@ const PALETTE = {
   hill: ['#5aa469', '#8a9a5b', '#4d8f6f', '#7a9e4f', '#6b9e78'],
   sun: ['#ffd93d', '#ffb347', '#ffe066', '#ff9f43', '#ffd32a'],
 };
+const SHAPE_COLORS = ['#ff6b6b', '#48dbfb', '#1dd1a1', '#feca57', '#ff9ff3', '#ffffff'];
+const ALT_COLORS = ['#48dbfb', '#ff6b6b', '#feca57', '#1dd1a1', '#ff9ff3', '#f368e0'];
 
 export function makeScene(seed) {
   const rnd = createRandom(seed);
@@ -38,23 +44,35 @@ export function makeScene(seed) {
   for (let i = 0; i < nFlowers; i++) {
     scene.flowers.push({ x: 15 + rnd() * (W - 30), y: 300 + rnd() * 45, c: pick(['#ff6b6b', '#feca57', '#f368e0', '#ffffff']) });
   }
-  // Choose DIFF_COUNT well-separated difference spots
+  // Choose DIFF_COUNT well-separated difference spots.
   const diffs = [];
   let guard = 0;
   while (diffs.length < DIFF_COUNT && guard++ < 500) {
     const d = {
-      kind: ['shape', 'color', 'missing'][Math.floor(rnd() * 3)],
+      type: ['extra', 'missing', 'recolor'][Math.floor(rnd() * 3)],
       x: 30 + rnd() * (W - 60),
       y: 90 + rnd() * (H - 130),
       r: 10 + rnd() * 8,
-      color: pick(['#ff6b6b', '#48dbfb', '#1dd1a1', '#feca57', '#ff9ff3']),
-      side: rnd() < 0.5 ? 'left' : 'right',
+      color: pick(SHAPE_COLORS),
+      altColor: pick(ALT_COLORS),
     };
     if (diffs.every((o) => Math.hypot(o.x - d.x, o.y - d.y) > 70)) diffs.push(d);
   }
   return { scene, diffs, seed };
 }
 
+function drawDiffShape(ctx, d, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+// Draw the base scene plus the differences that belong to `side`.
+// Differences already in `found` are omitted (both sides look identical there).
 export function drawScene(ctx, scene, diffs, side, found) {
   // sky
   ctx.fillStyle = scene.sky;
@@ -72,7 +90,7 @@ export function drawScene(ctx, scene, diffs, side, found) {
     ctx.ellipse(c.x + 18 * c.s, c.y + 3, 18 * c.s, 10 * c.s, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-  // hills
+  // hill
   ctx.fillStyle = scene.hill;
   ctx.beginPath();
   ctx.moveTo(0, H);
@@ -111,26 +129,12 @@ export function drawScene(ctx, scene, diffs, side, found) {
     ctx.arc(f.x, f.y, 4, 0, Math.PI * 2);
     ctx.fill();
   }
-  // differences: drawn only on their side unless found
+  // differences for this side (skip ones already found)
   for (let i = 0; i < diffs.length; i++) {
-    const d = diffs[i];
-    if (d.side !== side) continue;
     if (found.has(i)) continue;
-    ctx.fillStyle = d.color;
-    if (d.kind === 'shape') {
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (d.kind === 'color') {
-      ctx.fillRect(d.x - d.r, d.y - d.r * 0.6, d.r * 2, d.r * 1.2);
-    } else {
-      // "missing": draw a small mark only on the side that has it
-      ctx.strokeStyle = d.color;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(d.x - d.r, d.y);
-      ctx.lineTo(d.x + d.r, d.y);
-      ctx.stroke();
-    }
+    const d = diffs[i];
+    if (d.type === 'extra' && side === 'right') drawDiffShape(ctx, d, d.color);
+    else if (d.type === 'missing' && side === 'left') drawDiffShape(ctx, d, d.color);
+    else if (d.type === 'recolor') drawDiffShape(ctx, d, side === 'right' ? d.altColor : d.color);
   }
 }

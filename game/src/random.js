@@ -1,4 +1,4 @@
-// Deterministic PRNG so a scene is reproducible from its seed.
+// Deterministic PRNG (mulberry32) so a scene is reproducible from its seed.
 export function createRandom(seed) {
   let s = seed >>> 0;
   return function () {
